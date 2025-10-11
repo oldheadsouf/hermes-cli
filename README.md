@@ -65,6 +65,9 @@ hermes --model "Hermes-4-70B" "Explain neural networks"
 - `--schema`: JSON schema for structured output (JSON string or file path)
 - `--stream / --no-stream`: Enable/disable streaming output (default: `--stream`)
 - `-m, --model`: Model to use - `Hermes-4-405B` or `Hermes-4-70b` (default: `Hermes-4-405B`)
+- `-t, --temperature`: Sets model temperature (int, default 0.7)
+- `-mt, --max-tokens`: Sets max output tokens (int, default 2048)
+- `-b, --border`: Wraps outputs in a handsome pixel border for a spiced-up aesthetic
 
 ## Installation
 
