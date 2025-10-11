@@ -18,8 +18,31 @@ def load_schema(schema_input: str) -> Dict[str, Any]:
         ValueError: If schema is invalid JSON
         FileNotFoundError: If schema file doesn't exist
     """
-    # TODO: Implement schema loading logic
-    pass
+    # Try to determine if it's a JSON string or file path
+    # JSON strings start with { or [
+    if schema_input.strip().startswith('{') or schema_input.strip().startswith('['):
+        # Treat as JSON string
+        try:
+            return json.loads(schema_input)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON schema string: {str(e)}")
+    else:
+        # Treat as file path
+        schema_path = Path(schema_input)
+
+        if not schema_path.exists():
+            raise FileNotFoundError(f"Schema file not found: {schema_input}")
+
+        if not schema_path.is_file():
+            raise ValueError(f"Schema path is not a file: {schema_input}")
+
+        try:
+            with open(schema_path, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in schema file {schema_input}: {str(e)}")
+        except Exception as e:
+            raise ValueError(f"Error reading schema file {schema_input}: {str(e)}")
 
 
 def build_system_prompt_with_schema(
@@ -35,5 +58,10 @@ def build_system_prompt_with_schema(
     Returns:
         Complete system prompt with schema instructions
     """
-    # TODO: Implement system prompt building logic
-    pass
+    schema_json = json.dumps(schema, indent=2)
+    schema_instruction = f"\n\nYou must respond with valid JSON matching this schema: {schema_json}"
+
+    if user_system_prompt:
+        return user_system_prompt + schema_instruction
+    else:
+        return schema_instruction.strip()

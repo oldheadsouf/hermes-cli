@@ -27,5 +27,19 @@ def get_user_prompt(cli_prompt: Optional[str]) -> str:
     Raises:
         ValueError: If no prompt is provided via CLI or stdin
     """
-    # TODO: Implement prompt detection logic
-    pass
+    # Check for piped input first (takes priority)
+    stdin_input = read_stdin()
+    if stdin_input:
+        return stdin_input
+
+    # Fall back to CLI argument
+    if cli_prompt:
+        return cli_prompt
+
+    # No input provided
+    raise ValueError(
+        "No prompt provided. Please provide a prompt as an argument or pipe input.\n"
+        "Examples:\n"
+        "  hermes \"Your prompt here\"\n"
+        "  echo \"Your prompt\" | hermes"
+    )
