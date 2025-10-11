@@ -2,6 +2,9 @@
 
 import sys
 from typing import Optional
+from rich.console import Console
+from rich.panel import Panel
+from rich.style import Style
 
 
 def read_stdin() -> Optional[str]:
@@ -43,3 +46,31 @@ def get_user_prompt(cli_prompt: Optional[str]) -> str:
         "  hermes \"Your prompt here\"\n"
         "  echo \"Your prompt\" | hermes"
     )
+
+
+def format_with_border(content: str, model: str) -> str:
+    """Format content with a decorative ASCII border.
+
+    Args:
+        content: The text content to wrap in a border
+
+    Returns:
+        The content formatted with a handsome ASCII border
+    """
+    console = Console()
+
+    # Create a beautiful panel with rounded corners and a gradient-style border
+    panel = Panel(
+        content,
+        border_style=Style(color="cyan", bold=True),
+        padding=(1, 2),
+        expand=False,
+        title=f"[bold magenta]✨ {model} ✨[/bold magenta]",
+        title_align="center",
+    )
+
+    # Capture the output to a string
+    with console.capture() as capture:
+        console.print(panel)
+
+    return capture.get().rstrip()
