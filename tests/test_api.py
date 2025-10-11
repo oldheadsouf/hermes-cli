@@ -111,6 +111,66 @@ class TestChatCompletion:
             assert call_args['temperature'] == 0.5
             assert call_args['max_tokens'] == 1024
 
+    def test_chat_completion_default_temperature(self, client):
+        """Test that default temperature is 0.7."""
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {"choices": []}
+
+            messages = [{"role": "user", "content": "Test"}]
+            client.chat_completion(messages, stream=False)
+
+            call_args = mock_post.call_args[1]['json']
+            assert call_args['temperature'] == 0.7
+
+    def test_chat_completion_default_max_tokens(self, client):
+        """Test that default max_tokens is 2048."""
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {"choices": []}
+
+            messages = [{"role": "user", "content": "Test"}]
+            client.chat_completion(messages, stream=False)
+
+            call_args = mock_post.call_args[1]['json']
+            assert call_args['max_tokens'] == 2048
+
+    def test_chat_completion_extreme_temperature_values(self, client):
+        """Test chat completion with extreme temperature values."""
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {"choices": []}
+
+            messages = [{"role": "user", "content": "Test"}]
+
+            # Test minimum temperature (0.0)
+            client.chat_completion(messages, temperature=0.0, stream=False)
+            call_args = mock_post.call_args[1]['json']
+            assert call_args['temperature'] == 0.0
+
+            # Test maximum temperature (2.0)
+            client.chat_completion(messages, temperature=2.0, stream=False)
+            call_args = mock_post.call_args[1]['json']
+            assert call_args['temperature'] == 2.0
+
+    def test_chat_completion_custom_max_tokens_values(self, client):
+        """Test chat completion with various max_tokens values."""
+        with patch.object(client.session, 'post') as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {"choices": []}
+
+            messages = [{"role": "user", "content": "Test"}]
+
+            # Test small value
+            client.chat_completion(messages, max_tokens=100, stream=False)
+            call_args = mock_post.call_args[1]['json']
+            assert call_args['max_tokens'] == 100
+
+            # Test large value
+            client.chat_completion(messages, max_tokens=4096, stream=False)
+            call_args = mock_post.call_args[1]['json']
+            assert call_args['max_tokens'] == 4096
+
     def test_chat_completion_streaming_success(self, client):
         """Test successful streaming chat completion."""
         mock_chunks = [
