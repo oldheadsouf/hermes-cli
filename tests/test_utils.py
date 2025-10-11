@@ -4,7 +4,7 @@ import sys
 import pytest
 from io import StringIO
 from unittest.mock import patch, Mock
-from hermes_cli.utils import read_stdin, get_user_prompt
+from hermes_cli.utils import read_stdin, get_user_prompt, format_with_border
 
 
 class TestReadStdin:
@@ -260,3 +260,100 @@ class TestIntegration:
             with pytest.raises(ValueError) as exc_info:
                 get_user_prompt(None)
             assert "No prompt provided" in str(exc_info.value)
+
+
+class TestFormatWithBorder:
+    """Tests for format_with_border function."""
+
+    def test_format_with_border_simple_text(self):
+        """Test formatting simple text with a border."""
+        content = "Hello, world!"
+        model = "Hermes-4-405B"
+        result = format_with_border(content, model)
+
+        # Check that the border is present (rich uses box drawing characters)
+        assert result is not None
+        assert len(result) > len(content)  # Border adds characters
+        assert "Hello, world!" in result
+        assert "Hermes-4-405B" in result
+
+    def test_format_with_border_multiline_text(self):
+        """Test formatting multiline text with a border."""
+        content = "Line 1\nLine 2\nLine 3"
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        # All lines should be present
+        assert "Line 1" in result
+        assert "Line 2" in result
+        assert "Line 3" in result
+        assert "Hermes-4-405B" in result
+
+    def test_format_with_border_empty_string(self):
+        """Test formatting empty string with a border."""
+        content = ""
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        # Should still have border elements
+        assert result is not None
+        assert "Hermes-4-405B" in result
+
+    def test_format_with_border_json_content(self):
+        """Test formatting JSON content with a border."""
+        content = '{\n  "key": "value",\n  "number": 42\n}'
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        # JSON should be preserved
+        assert '"key"' in result
+        assert '"value"' in result
+        assert "42" in result
+        assert "Hermes-4-405B" in result
+
+    def test_format_with_border_long_text(self):
+        """Test formatting long text with a border."""
+        content = "This is a very long line of text " * 10
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        # Content should be present
+        assert "This is a very long line of text" in result
+        assert "Hermes-4-405B" in result
+
+    def test_format_with_border_special_characters(self):
+        """Test formatting text with special characters."""
+        content = "Special chars: !@#$%^&*()[]{}|\\<>?/"
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        assert "Special chars" in result
+        assert "Hermes-4-405B" in result
+
+    def test_format_with_border_unicode(self):
+        """Test formatting text with unicode characters."""
+        content = "Unicode: 世界 🌍 café naïve"
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        assert "Unicode" in result
+        assert "Hermes-4-405B" in result
+
+    def test_format_with_border_returns_string(self):
+        """Test that format_with_border returns a string."""
+        content = "Test"
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        assert isinstance(result, str)
+
+    def test_format_with_border_no_trailing_newlines(self):
+        """Test that format_with_border strips trailing newlines."""
+        content = "Test content"
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        # Result should not end with multiple newlines
+        assert not result.endswith("\n\n")
+
+    def test_format_with_border_preserves_internal_newlines(self):
+        """Test that internal newlines in content are preserved."""
+        content = "Line 1\n\nLine 2\n\nLine 3"
+        result = format_with_border(content,model="Hermes-4-405B")
+
+        # Content with internal newlines should be present
+        assert "Line 1" in result
+        assert "Line 2" in result
+        assert "Line 3" in result

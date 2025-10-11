@@ -3,9 +3,10 @@
 import sys
 import json
 import click
+from io import StringIO
 
 from hermes_cli.api import NousAPIClient, APIError
-from hermes_cli.utils import get_user_prompt
+from hermes_cli.utils import get_user_prompt, format_with_border
 from hermes_cli.schema import load_schema, build_system_prompt_with_schema
 
 
@@ -17,7 +18,8 @@ from hermes_cli.schema import load_schema, build_system_prompt_with_schema
 @click.option("-m", "--model", default="Hermes-4-405B", help="Model to use (Hermes-4-405B or Hermes-4-70B)")
 @click.option("-t", "--temperature", type=float, default=0.7, help="Sampling temperature (0.0-2.0, default: 0.7)")
 @click.option("-mt", "--max-tokens", type=int, default=2048, help="Maximum tokens in response (default: 2048)")
-def cli(prompt, system, schema, stream, model, temperature, max_tokens):
+@click.option("-b", "--border", is_flag=True, default=False, help="Format output with a decorative ASCII border")
+def cli(prompt, system, schema, stream, model, temperature, max_tokens, border):
     """Hermes CLI - Interface with Nous Research's Hermes-4 models.
 
     Examples:
@@ -76,10 +78,18 @@ def cli(prompt, system, schema, stream, model, temperature, max_tokens):
 
             if use_streaming:
                 # Handle streaming response
-                for chunk in response:
-                    click.echo(chunk, nl=False)
-                # Add newline at end of streaming output
-                click.echo()
+                if border:
+                    # Collect all chunks first for border formatting
+                    collected_output = StringIO()
+                    for chunk in response:
+                        collected_output.write(chunk)
+                    output_text = collected_output.getvalue()
+                    click.echo(format_with_border(output_text, model))
+                else:
+                    for chunk in response:
+                        click.echo(chunk, nl=False)
+                    # Add newline at end of streaming output
+                    click.echo()
             else:
                 # Handle non-streaming response
                 if "choices" in response and len(response["choices"]) > 0:
@@ -89,10 +99,14 @@ def cli(prompt, system, schema, stream, model, temperature, max_tokens):
                     if schema_dict:
                         try:
                             parsed_json = json.loads(content)
-                            click.echo(json.dumps(parsed_json, indent=2))
+                            content = json.dumps(parsed_json, indent=2)
                         except json.JSONDecodeError:
-                            # If it's not valid JSON, just print as-is
-                            click.echo(content)
+                            # If it's not valid JSON, just use as-is
+                            pass
+
+                    # Apply border if requested
+                    if border:
+                        click.echo(format_with_border(content, model))
                     else:
                         click.echo(content)
                 else:

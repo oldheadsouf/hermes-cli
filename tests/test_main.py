@@ -435,3 +435,127 @@ class TestCLISchema:
             assert result.exit_code == 0
             call_args = mock_client.chat_completion.call_args[1]
             assert call_args['stream'] is False
+
+
+class TestCLIBorder:
+    """Tests for border formatting functionality."""
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI test runner."""
+        return CliRunner()
+
+    def test_cli_with_border_non_streaming(self, runner):
+        """Test CLI with border flag for non-streaming output."""
+        mock_response = {
+            "choices": [{"message": {"content": "Test response"}}]
+        }
+
+        with patch('hermes_cli.main.NousAPIClient') as mock_client_class:
+            mock_client = Mock()
+            mock_client.chat_completion.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            result = runner.invoke(cli, [
+                '--no-stream',
+                '--border',
+                'Test prompt'
+            ])
+
+            assert result.exit_code == 0
+            # Check for border characters from rich Panel
+            assert "Hermes-4-405B" in result.output
+            assert "Test response" in result.output
+
+    def test_cli_with_border_streaming(self, runner):
+        """Test CLI with border flag for streaming output."""
+        mock_chunks = ["Hello", " ", "world"]
+
+        with patch('hermes_cli.main.NousAPIClient') as mock_client_class:
+            mock_client = Mock()
+            mock_client.chat_completion.return_value = iter(mock_chunks)
+            mock_client_class.return_value = mock_client
+
+            result = runner.invoke(cli, [
+                '--stream',
+                '--border',
+                'Test prompt'
+            ])
+
+            assert result.exit_code == 0
+            # Check for border characters and collected output
+            assert "Hermes-4-405B" in result.output
+            assert "Hello world" in result.output
+
+    def test_cli_without_border(self, runner):
+        """Test CLI output without border flag (default behavior)."""
+        mock_response = {
+            "choices": [{"message": {"content": "Test response"}}]
+        }
+
+        with patch('hermes_cli.main.NousAPIClient') as mock_client_class:
+            mock_client = Mock()
+            mock_client.chat_completion.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            result = runner.invoke(cli, [
+                '--no-stream',
+                'Test prompt'
+            ])
+
+            assert result.exit_code == 0
+            # Should NOT have border formatting
+            assert "Hermes-4-405B" not in result.output
+            # Should have plain output
+            assert result.output.strip() == "Test response"
+
+    def test_cli_border_with_schema(self, runner):
+        """Test CLI with both border and schema flags."""
+        json_response = '{"answer": "42"}'
+        mock_response = {
+            "choices": [{"message": {"content": json_response}}]
+        }
+
+        with patch('hermes_cli.main.NousAPIClient') as mock_client_class:
+            mock_client = Mock()
+            mock_client.chat_completion.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            schema = '{"type": "object", "properties": {"answer": {"type": "string"}}}'
+            result = runner.invoke(cli, [
+                '--schema', schema,
+                '--border',
+                'Test prompt'
+            ])
+
+            assert result.exit_code == 0
+            # Should have border
+            assert "Hermes-4-405B" in result.output
+            # Should have pretty-printed JSON
+            assert '"answer"' in result.output
+            assert '"42"' in result.output
+
+    def test_cli_border_with_multiline_content(self, runner):
+        """Test CLI with border flag for multiline content."""
+        multiline_content = "Line 1\nLine 2\nLine 3"
+        mock_response = {
+            "choices": [{"message": {"content": multiline_content}}]
+        }
+
+        with patch('hermes_cli.main.NousAPIClient') as mock_client_class:
+            mock_client = Mock()
+            mock_client.chat_completion.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            result = runner.invoke(cli, [
+                '--no-stream',
+                '--border',
+                'Test prompt'
+            ])
+
+            assert result.exit_code == 0
+            # Check that all lines are present
+            assert "Line 1" in result.output
+            assert "Line 2" in result.output
+            assert "Line 3" in result.output
+            assert "Hermes-4-405B" in result.output
