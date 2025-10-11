@@ -19,7 +19,7 @@ class APIError(Exception):
 class NousAPIClient:
     """Client for interacting with Nous Research API."""
 
-    BASE_URL = "https://api.nousresearch.com/v1"
+    BASE_URL = "https://inference-api.nousresearch.com/v1"
 
     def __init__(self, api_key: Optional[str] = None):
         """Initialize the API client.
@@ -46,7 +46,7 @@ class NousAPIClient:
     def chat_completion(
         self,
         messages: list[Dict[str, str]],
-        model: str = "hermes-4-405b",
+        model: str = "Hermes-4-405B",
         temperature: float = 0.7,
         max_tokens: int = 2048,
         stream: bool = True
@@ -55,7 +55,7 @@ class NousAPIClient:
 
         Args:
             messages: List of message dicts with 'role' and 'content' keys
-            model: Model to use (hermes-4-405b or hermes-4-70b)
+            model: Model to use (Hermes-4-405B or Hermes-4-70B)
             temperature: Sampling temperature
             max_tokens: Maximum tokens in response
             stream: Whether to stream the response
@@ -91,7 +91,7 @@ class NousAPIClient:
 
         except requests.exceptions.Timeout:
             raise APIError("Request timed out. Please try again.")
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
             raise APIError("Failed to connect to Nous Research API. Please check your internet connection.")
         except requests.exceptions.RequestException as e:
             raise APIError(f"Request failed: {str(e)}")

@@ -13,8 +13,8 @@ from hermes_cli.schema import load_schema, build_system_prompt_with_schema
 @click.argument("prompt", required=False)
 @click.option("-s", "--system", help="System prompt")
 @click.option("--schema", help="JSON schema for structured output (JSON string or file path)")
-@click.option("--stream/--no-stream", default=True, help="Enable/disable streaming output")
-@click.option("-m", "--model", default="hermes-4-405b", help="Model to use (hermes-4-405b or hermes-4-70b)")
+@click.option("--stream/--no-stream", "stream", default=None, help="Enable/disable streaming output (default: stream enabled, auto-disabled with --schema)")
+@click.option("-m", "--model", default="Hermes-4-405B", help="Model to use (Hermes-4-405B or Hermes-4-70B)")
 def cli(prompt, system, schema, stream, model):
     """Hermes CLI - Interface with Nous Research's Hermes-4 models.
 
@@ -38,10 +38,16 @@ def cli(prompt, system, schema, stream, model):
             schema_dict = load_schema(schema)
             # When schema is provided, build system prompt with schema instructions
             system = build_system_prompt_with_schema(system, schema_dict)
-            # Schema output should not stream (for clean JSON parsing)
-            # But we'll respect the user's explicit --stream flag if provided
-            # Note: Click doesn't easily tell us if a default was used or explicitly set
-            # For simplicity, we'll allow streaming with schema but it's not recommended
+
+        # Determine streaming behavior
+        # If stream is None, user didn't explicitly set it
+        # Auto-disable streaming when schema is provided (unless explicitly overridden)
+        if stream is None:
+            # Default behavior: stream enabled, but disabled when schema is used
+            use_streaming = not bool(schema_dict)
+        else:
+            # User explicitly set --stream or --no-stream, respect their choice
+            use_streaming = stream
 
         # Build messages array
         messages = []
@@ -61,10 +67,10 @@ def cli(prompt, system, schema, stream, model):
             response = client.chat_completion(
                 messages=messages,
                 model=model,
-                stream=stream
+                stream=use_streaming
             )
 
-            if stream:
+            if use_streaming:
                 # Handle streaming response
                 for chunk in response:
                     click.echo(chunk, nl=False)
