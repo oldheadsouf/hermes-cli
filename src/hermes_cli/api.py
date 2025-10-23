@@ -49,7 +49,9 @@ class NousAPIClient:
         model: str = "Hermes-4-405B",
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        stream: bool = True
+        stream: bool = True,
+        tools: Optional[list[Dict[str, Any]]] = None,
+        tool_choice: Optional[str | Dict] = None
     ) -> Dict[str, Any] | Iterator[Dict[str, Any]]:
         """Send a chat completion request to the API.
 
@@ -59,6 +61,8 @@ class NousAPIClient:
             temperature: Sampling temperature
             max_tokens: Maximum tokens in response
             stream: Whether to stream the response
+            tools: Optional list of tool schemas for function calling
+            tool_choice: Optional tool choice directive
 
         Returns:
             Response dict or iterator of response chunks if streaming
@@ -75,6 +79,15 @@ class NousAPIClient:
             "max_tokens": max_tokens,
             "stream": stream
         }
+
+        # Add tools if provided (forces non-streaming)
+        if tools:
+            payload["tools"] = tools
+            payload["stream"] = False
+            stream = False  # Override stream parameter
+
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
 
         try:
             response = self.session.post(url, json=payload, stream=stream, timeout=30)

@@ -65,7 +65,8 @@ class ConversationManager:
         model: str = "Hermes-4-405B",
         temperature: float = 0.7,
         max_tokens: int = 2048,
-        schema: Optional[Dict[str, Any]] = None
+        schema: Optional[Dict[str, Any]] = None,
+        tools_config: Optional[Dict[str, Any]] = None
     ) -> tuple[str, Path]:
         """Create a new conversation session.
 
@@ -77,6 +78,7 @@ class ConversationManager:
             temperature: Temperature setting
             max_tokens: Max tokens setting
             schema: Optional JSON schema
+            tools_config: Optional tool configuration dict
 
         Returns:
             Tuple of (actual_name_used, conversation_file_path)
@@ -99,6 +101,7 @@ class ConversationManager:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "schema": schema,
+            "tools_config": tools_config,
             "messages": messages
         }
 
