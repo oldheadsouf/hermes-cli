@@ -48,7 +48,11 @@ class HermesGroup(click.Group):
                     # Invoke just the group callback
                     with ctx.scope(cleanup=False):
                         return click.Group.invoke(self, ctx)
-                except:
+                except (SystemExit, KeyboardInterrupt):
+                    # Let system exits and keyboard interrupts propagate
+                    raise
+                except Exception:
+                    # Only catch parsing errors, not system control flow
                     pass
             # Re-raise if not our special case
             raise
