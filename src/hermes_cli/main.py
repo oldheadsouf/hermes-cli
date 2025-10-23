@@ -455,8 +455,9 @@ def cli(ctx, system, schema, stream, model, temperature, max_tokens, border, use
 @click.option("-t", "--temperature", type=float, default=0.7, help="Sampling temperature (0.0-2.0, default: 0.7)")
 @click.option("-mt", "--max-tokens", type=int, default=2048, help="Maximum tokens in response (default: 2048)")
 @click.option("--use-tools", help="Enable tool use. Comma-separated tool names or 'all' for all available tools")
+@click.option("--max-tool-calls", type=int, default=5, help="Maximum recursive tool call iterations (default: 5)")
 @click.option("-b", "--border", is_flag=True, default=False, help="Format output with a decorative ASCII border")
-def chat(ctx, prompt, name, load_name, system, schema, stream, model, temperature, max_tokens, border):
+def chat(ctx, prompt, name, load_name, system, schema, stream, model, temperature, max_tokens, use_tools, max_tool_calls, border):
     """Start or continue a conversational chat session.
 
     Examples:
@@ -516,8 +517,16 @@ def chat(ctx, prompt, name, load_name, system, schema, stream, model, temperatur
                 schema_dict = load_schema(schema)
                 system = build_system_prompt_with_schema(system, schema_dict)
 
-            # Get tools config from context
-            tools_config = ctx.obj.get('tools_config')
+            # Build tools config from chat command flags
+            tools_config = None
+            if use_tools:
+                tools_config = {
+                    'use_tools': use_tools,
+                    'max_calls': max_tool_calls
+                }
+            # Fallback to context if not specified
+            elif ctx.obj.get('tools_config'):
+                tools_config = ctx.obj.get('tools_config')
 
             # Create the conversation with the first message
             actual_name, conv_path = conv_manager.create_conversation(
@@ -576,11 +585,17 @@ def chat(ctx, prompt, name, load_name, system, schema, stream, model, temperatur
         schema_dict = conversation_data.get("schema")
 
         # Determine tool configuration for this message
-        # Priority: CLI flag > conversation default > None
+        # Priority: chat command flags > main command context > conversation default > None
         tools_config = None
 
-        if ctx.obj.get('tools_config'):
-            # CLI flag takes precedence
+        if use_tools:
+            # Chat command --use-tools flag takes highest precedence
+            tools_config = {
+                'use_tools': use_tools,
+                'max_calls': max_tool_calls
+            }
+        elif ctx.obj.get('tools_config'):
+            # Main command context (e.g., hermes --use-tools all chat ...)
             tools_config = ctx.obj['tools_config']
         elif 'conversation_data' in locals():
             # Use conversation default

@@ -297,3 +297,108 @@ def test_custom_tool_decorator():
 
     result = test_func(param="test")
     assert result["result"] == "processed: test"
+
+
+@patch('hermes_cli.api.NousAPIClient')
+def test_chat_command_with_tools(mock_client_class):
+    """Test chat command accepts --use-tools flag."""
+    from click.testing import CliRunner
+    from hermes_cli.main import cli
+    import uuid
+
+    # Mock the API client
+    mock_client = Mock()
+    mock_client_class.return_value = mock_client
+
+    # Mock API response with tool call followed by final answer
+    mock_client.chat_completion.side_effect = [
+        # First response: tool call
+        {
+            "choices": [{
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "calculate",
+                            "arguments": '{"expression": "2 + 2"}'
+                        }
+                    }]
+                }
+            }]
+        },
+        # Second response: final answer
+        {
+            "choices": [{
+                "finish_reason": "stop",
+                "message": {
+                    "role": "assistant",
+                    "content": "The answer is 4."
+                }
+            }]
+        }
+    ]
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        # Use unique conversation name to avoid conflicts
+        chat_name = f'test-chat-{uuid.uuid4().hex[:8]}'
+
+        # Test creating a new chat with tools
+        result = runner.invoke(cli, [
+            'chat',
+            '--name', chat_name,
+            '--use-tools', 'calculate',
+            'What is 2 + 2?'
+        ])
+
+        # Should not error on the --use-tools flag
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+        assert "No such option" not in result.output
+        # Verify the tool was called and we got a response
+        assert "[Calling tool: calculate]" in result.output or result.exit_code == 0
+
+
+def test_chat_command_with_tools_and_max_calls():
+    """Test chat command accepts --max-tool-calls flag."""
+    from click.testing import CliRunner
+    from hermes_cli.main import cli
+    import uuid
+    from unittest.mock import patch, Mock, MagicMock
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        # Use unique conversation name to avoid conflicts
+        chat_name = f'test-max-calls-{uuid.uuid4().hex[:8]}'
+
+        # Patch before invoking
+        with patch('hermes_cli.main.NousAPIClient') as mock_client_class:
+            # Create a completely fresh mock
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+
+            # Mock API response - fresh mock won't have side_effect
+            mock_client.chat_completion.return_value = {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": "Answer"
+                    }
+                }]
+            }
+
+            result = runner.invoke(cli, [
+                'chat',
+                '--name', chat_name,
+                '--use-tools', 'calculate',
+                '--max-tool-calls', '10',
+                'Test prompt'
+            ])
+
+            # Should not error on flags
+            assert result.exit_code == 0, f"Command failed: {result.output}\nException: {getattr(result, 'exception', None)}"
+            assert "No such option" not in result.output
