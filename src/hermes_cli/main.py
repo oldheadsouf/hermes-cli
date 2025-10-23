@@ -9,6 +9,216 @@ from hermes_cli.api import NousAPIClient, APIError
 from hermes_cli.utils import get_user_prompt, format_with_border
 from hermes_cli.schema import load_schema, build_system_prompt_with_schema
 from hermes_cli.chat import ConversationManager
+from hermes_cli.tools import ToolRegistry, ToolExecutor
+
+
+def _execute_with_tools(
+    client: NousAPIClient,
+    messages: list[dict],
+    selected_tools: dict,
+    tool_schemas: list[dict],
+    executor: ToolExecutor,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    max_calls: int,
+    border: bool,
+    schema_dict: dict = None
+):
+    """Execute request with tool calling loop.
+
+    Args:
+        client: API client instance
+        messages: Initial messages list
+        selected_tools: Dict of enabled tool functions
+        tool_schemas: List of tool schemas for API
+        executor: ToolExecutor instance
+        model: Model name
+        temperature: Temperature setting
+        max_tokens: Max tokens setting
+        max_calls: Maximum tool call iterations
+        border: Whether to format with border
+        schema_dict: Optional JSON schema
+    """
+    current_messages = messages.copy()
+
+    for iteration in range(max_calls):
+        try:
+            # Make API request with tools
+            response = client.chat_completion(
+                messages=current_messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=False,  # Required for tool use
+                tools=tool_schemas
+            )
+
+            # Check if we have a response
+            if "choices" not in response or len(response["choices"]) == 0:
+                click.echo("Error: No response from API", err=True)
+                sys.exit(1)
+
+            choice = response["choices"][0]
+            finish_reason = choice.get("finish_reason")
+            message = choice.get("message", {})
+
+            if finish_reason == "tool_calls":
+                # Model wants to call tools
+                tool_calls = message.get("tool_calls", [])
+
+                if not tool_calls:
+                    click.echo("Error: finish_reason is tool_calls but no tool_calls in response", err=True)
+                    break
+
+                # Display which tools are being called
+                for tc in tool_calls:
+                    func_name = tc["function"]["name"]
+                    click.echo(f"[Calling tool: {func_name}]", err=True)
+
+                # Add assistant message with tool calls to history
+                current_messages.append(message)
+
+                # Execute tools and add results
+                tool_results = executor.execute_tool_calls(tool_calls, selected_tools)
+                current_messages.extend(tool_results)
+
+                # Continue loop to get final answer
+
+            else:
+                # Final answer reached
+                content = message.get("content", "")
+
+                # Format JSON if schema provided
+                if schema_dict and content:
+                    try:
+                        parsed_json = json.loads(content)
+                        content = json.dumps(parsed_json, indent=2)
+                    except json.JSONDecodeError:
+                        pass
+
+                # Display result
+                if border:
+                    click.echo(format_with_border(content, model))
+                else:
+                    click.echo(content)
+
+                return  # Success
+
+        except APIError as e:
+            click.echo(f"API Error: {e.message}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error: {str(e)}", err=True)
+            sys.exit(1)
+
+    # Reached max iterations
+    click.echo(f"Warning: Reached maximum tool call limit ({max_calls})", err=True)
+
+
+def _execute_chat_with_tools(
+    client: NousAPIClient,
+    conversation_data: dict,
+    conversation_name: str,
+    conv_manager: ConversationManager,
+    selected_tools: dict,
+    tool_schemas: list[dict],
+    executor: ToolExecutor,
+    tools_config: dict,
+    border: bool
+):
+    """Execute chat message with tool calling loop.
+
+    Args:
+        client: API client
+        conversation_data: Full conversation data dict
+        conversation_name: Name of conversation
+        conv_manager: ConversationManager instance
+        selected_tools: Dict of enabled tools
+        tool_schemas: Tool schemas for API
+        executor: ToolExecutor instance
+        tools_config: Tool configuration dict
+        border: Whether to format with border
+    """
+    model = conversation_data.get("model")
+    temperature = conversation_data.get("temperature")
+    max_tokens = conversation_data.get("max_tokens")
+    schema_dict = conversation_data.get("schema")
+    max_calls = tools_config.get('max_calls', 5)
+
+    messages = conversation_data["messages"].copy()
+
+    for iteration in range(max_calls):
+        try:
+            response = client.chat_completion(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=False,
+                tools=tool_schemas
+            )
+
+            if "choices" not in response or len(response["choices"]) == 0:
+                click.echo("Error: No response from API", err=True)
+                sys.exit(1)
+
+            choice = response["choices"][0]
+            finish_reason = choice.get("finish_reason")
+            message = choice.get("message", {})
+
+            if finish_reason == "tool_calls":
+                tool_calls = message.get("tool_calls", [])
+
+                # Display tool calls
+                for tc in tool_calls:
+                    func_name = tc["function"]["name"]
+                    click.echo(f"[Calling tool: {func_name}]", err=True)
+
+                # Add assistant message with tool calls
+                messages.append(message)
+                conversation_data["messages"].append(message)
+
+                # Execute tools
+                tool_results = executor.execute_tool_calls(tool_calls, selected_tools)
+
+                # Add tool results to messages and save
+                for result in tool_results:
+                    messages.append(result)
+                    conversation_data["messages"].append(result)
+
+                conv_manager.save_conversation(conversation_name, conversation_data)
+
+            else:
+                # Final answer
+                content = message.get("content", "")
+
+                if schema_dict and content:
+                    try:
+                        parsed_json = json.loads(content)
+                        display_content = json.dumps(parsed_json, indent=2)
+                    except json.JSONDecodeError:
+                        display_content = content
+                else:
+                    display_content = content
+
+                # Display
+                if border:
+                    click.echo(format_with_border(display_content, model))
+                else:
+                    click.echo(display_content)
+
+                # Save final assistant message
+                conversation_data["messages"].append({"role": "assistant", "content": content})
+                conv_manager.save_conversation(conversation_name, conversation_data)
+
+                return
+
+        except APIError as e:
+            click.echo(f"API Error: {e.message}", err=True)
+            sys.exit(1)
+
+    click.echo(f"Warning: Reached maximum tool call limit ({max_calls})", err=True)
 
 
 class HermesGroup(click.Group):
@@ -68,7 +278,9 @@ class HermesGroup(click.Group):
 @click.option("-t", "--temperature", type=float, default=0.7, help="Sampling temperature (0.0-2.0, default: 0.7)")
 @click.option("-mt", "--max-tokens", type=int, default=2048, help="Maximum tokens in response (default: 2048)")
 @click.option("-b", "--border", is_flag=True, default=False, help="Format output with a decorative ASCII border")
-def cli(ctx, system, schema, stream, model, temperature, max_tokens, border):
+@click.option("--use-tools", help="Enable tool use. Comma-separated tool names or 'all' for all available tools")
+@click.option("--max-tool-calls", type=int, default=5, help="Maximum recursive tool call iterations (default: 5)")
+def cli(ctx, system, schema, stream, model, temperature, max_tokens, border, use_tools, max_tool_calls):
     """Hermes CLI - Interface with Nous Research's Hermes-4 models.
 
     Examples:
@@ -81,12 +293,26 @@ def cli(ctx, system, schema, stream, model, temperature, max_tokens, border):
 
       hermes --schema '{"type": "object", "properties": {"answer": {"type": "string"}}}' "What is 2+2?"
 
+      hermes --use-tools calculate "What is 15 * 23?"
+
+      hermes --use-tools all "Search the web for Python tutorials"
+
       hermes chat --name "my-chat" "Start a conversation"
 
       hermes chat --load "my-chat"
 
       hermes chat exit
     """
+    # Store tool config in context for subcommands
+    ctx.ensure_object(dict)
+    if use_tools:
+        ctx.obj['tools_config'] = {
+            'use_tools': use_tools,
+            'max_calls': max_tool_calls
+        }
+    else:
+        ctx.obj['tools_config'] = None
+
     # If a subcommand is being invoked, don't run main logic
     if ctx.invoked_subcommand is not None:
         return
@@ -123,6 +349,39 @@ def cli(ctx, system, schema, stream, model, temperature, max_tokens, border):
         except ValueError as e:
             click.echo(f"Error: {str(e)}", err=True)
             sys.exit(1)
+
+        # Check if tools are enabled
+        tools_config = ctx.obj.get('tools_config')
+
+        if tools_config:
+            # Tool use mode - requires non-streaming
+            use_streaming = False
+
+            # Initialize tool registry and select tools
+            try:
+                registry = ToolRegistry()
+                selected_tools = registry.select_tools(tools_config['use_tools'])
+                tool_schemas = registry.get_tool_schemas(selected_tools)
+                executor = ToolExecutor(registry)
+            except ValueError as e:
+                click.echo(f"Error: {str(e)}", err=True)
+                sys.exit(1)
+
+            # Execute with tool loop
+            _execute_with_tools(
+                client=client,
+                messages=messages,
+                selected_tools=selected_tools,
+                tool_schemas=tool_schemas,
+                executor=executor,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                max_calls=tools_config['max_calls'],
+                border=border,
+                schema_dict=schema_dict
+            )
+            return
 
         # Make API request
         try:
@@ -185,6 +444,7 @@ def cli(ctx, system, schema, stream, model, temperature, max_tokens, border):
 
 
 @cli.command()
+@click.pass_context
 @click.argument("prompt", required=False)
 @click.option("-n", "--name", help="Name for the conversation (required for new chats)")
 @click.option("-l", "--load", "load_name", help="Load an existing conversation by name")
@@ -194,8 +454,9 @@ def cli(ctx, system, schema, stream, model, temperature, max_tokens, border):
 @click.option("-m", "--model", default="Hermes-4-405B", help="Model to use (Hermes-4-405B or Hermes-4-70B)")
 @click.option("-t", "--temperature", type=float, default=0.7, help="Sampling temperature (0.0-2.0, default: 0.7)")
 @click.option("-mt", "--max-tokens", type=int, default=2048, help="Maximum tokens in response (default: 2048)")
+@click.option("--use-tools", help="Enable tool use. Comma-separated tool names or 'all' for all available tools")
 @click.option("-b", "--border", is_flag=True, default=False, help="Format output with a decorative ASCII border")
-def chat(prompt, name, load_name, system, schema, stream, model, temperature, max_tokens, border):
+def chat(ctx, prompt, name, load_name, system, schema, stream, model, temperature, max_tokens, border):
     """Start or continue a conversational chat session.
 
     Examples:
@@ -255,6 +516,9 @@ def chat(prompt, name, load_name, system, schema, stream, model, temperature, ma
                 schema_dict = load_schema(schema)
                 system = build_system_prompt_with_schema(system, schema_dict)
 
+            # Get tools config from context
+            tools_config = ctx.obj.get('tools_config')
+
             # Create the conversation with the first message
             actual_name, conv_path = conv_manager.create_conversation(
                 name=name,
@@ -263,7 +527,8 @@ def chat(prompt, name, load_name, system, schema, stream, model, temperature, ma
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                schema=schema_dict
+                schema=schema_dict,
+                tools_config=tools_config
             )
 
             if actual_name != name:
@@ -310,9 +575,20 @@ def chat(prompt, name, load_name, system, schema, stream, model, temperature, ma
         max_tokens = conversation_data.get("max_tokens", max_tokens)
         schema_dict = conversation_data.get("schema")
 
+        # Determine tool configuration for this message
+        # Priority: CLI flag > conversation default > None
+        tools_config = None
+
+        if ctx.obj.get('tools_config'):
+            # CLI flag takes precedence
+            tools_config = ctx.obj['tools_config']
+        elif 'conversation_data' in locals():
+            # Use conversation default
+            tools_config = conversation_data.get('tools_config')
+
         # Determine streaming behavior
         if stream is None:
-            use_streaming = not bool(schema_dict)
+            use_streaming = not bool(schema_dict) and not bool(tools_config)
         else:
             use_streaming = stream
 
@@ -322,6 +598,32 @@ def chat(prompt, name, load_name, system, schema, stream, model, temperature, ma
         except ValueError as e:
             click.echo(f"Error: {str(e)}", err=True)
             sys.exit(1)
+
+        # Determine if we should use tools for this request
+        if tools_config:
+            # Initialize tool system
+            try:
+                registry = ToolRegistry()
+                selected_tools = registry.select_tools(tools_config['use_tools'])
+                tool_schemas = registry.get_tool_schemas(selected_tools)
+                executor = ToolExecutor(registry)
+            except ValueError as e:
+                click.echo(f"Error: {str(e)}", err=True)
+                sys.exit(1)
+
+            # Execute with tools
+            _execute_chat_with_tools(
+                client=client,
+                conversation_data=conversation_data,
+                conversation_name=conversation_name,
+                conv_manager=conv_manager,
+                selected_tools=selected_tools,
+                tool_schemas=tool_schemas,
+                executor=executor,
+                tools_config=tools_config,
+                border=border
+            )
+            return
 
         # Make API request with full conversation history
         try:
@@ -389,6 +691,76 @@ def chat(prompt, name, load_name, system, schema, stream, model, temperature, ma
         sys.exit(130)
     except Exception as e:
         click.echo(f"Unexpected error: {str(e)}", err=True)
+        sys.exit(1)
+
+
+@cli.group()
+def tools():
+    """Manage available tools."""
+    pass
+
+
+@tools.command(name="list")
+@click.option("--builtin", is_flag=True, help="Show only built-in tools")
+@click.option("--user", is_flag=True, help="Show only user-defined tools")
+def list_tools(builtin, user):
+    """List all available tools."""
+    try:
+        registry = ToolRegistry()
+        available = registry.list_tools()
+
+        if not user and available["builtin"]:
+            click.echo("Built-in tools:")
+            for name, desc in sorted(available["builtin"].items()):
+                click.echo(f"  {name}")
+                click.echo(f"    {desc}")
+
+        if not builtin and available["user"]:
+            if available["builtin"] and not user:
+                click.echo()
+            click.echo("User-defined tools:")
+            for name, desc in sorted(available["user"].items()):
+                click.echo(f"  {name}")
+                click.echo(f"    {desc}")
+
+        if not available["builtin"] and not available["user"]:
+            click.echo("No tools available")
+
+    except Exception as e:
+        click.echo(f"Error: {str(e)}", err=True)
+        sys.exit(1)
+
+
+@tools.command()
+@click.argument("tool_name")
+def show(tool_name):
+    """Show detailed information about a specific tool."""
+    try:
+        registry = ToolRegistry()
+        info = registry.get_tool_info(tool_name)
+
+        click.echo(f"Tool: {info['name']}")
+        click.echo(f"Type: {info['source']}")
+        click.echo(f"Description: {info['description']}")
+        click.echo()
+        click.echo("Parameters:")
+
+        params = info['parameters']
+        if params.get('properties'):
+            for param_name, param_def in params['properties'].items():
+                required = " (required)" if param_name in params.get('required', []) else ""
+                param_type = param_def.get('type', 'unknown')
+                param_desc = param_def.get('description', 'No description')
+                click.echo(f"  {param_name}: {param_type}{required}")
+                click.echo(f"    {param_desc}")
+        else:
+            click.echo("  None")
+
+    except ValueError as e:
+        click.echo(f"Error: {str(e)}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: {str(e)}", err=True)
         sys.exit(1)
 
 
